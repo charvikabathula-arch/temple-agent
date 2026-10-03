@@ -6,22 +6,29 @@ used = json.load(open("used.json")) if os.path.exists("used.json") else []
 
 prompt = f"""Instagram Reel about a Telugu-audience temple mystery. Pick ONE real, well-documented fact about an Indian temple that is not in this list: {used}. Do not invent or exaggerate facts. Return only JSON with keys: topic (English), script (Telugu, 90 to 110 words, strong hook in first line), caption (Telugu, 2 lines), hashtags (one string), keywords (list of 4 English stock video search terms)."""
 
+MODELS = ["gemini-3.8-flash", "gemini-flash-latest", "gemini-flash-lite-latest", "gemini-2.5-flash-lite"]
+
 d = None
-for attempt in range(3):
-    for m in ["gemini-3.8-flash", "gemini-flash-latest"]:
-        r = requests.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={G}",
-            json={"contents": [{"parts": [{"text": prompt}]}],
-                  "generationConfig": {"responseMimeType": "application/json"}},
-            timeout=60)
-        j = r.json()
+for attempt in range(4):
+    for m in MODELS:
+        try:
+            r = requests.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={G}",
+                json={"contents": [{"parts": [{"text": prompt}]}],
+                      "generationConfig": {"responseMimeType": "application/json"}},
+                timeout=60)
+            j = r.json()
+        except Exception as e:
+            print(m, "ERROR:", e)
+            continue
         if "candidates" in j:
             d = json.loads(j["candidates"][0]["content"]["parts"][0]["text"])
+            print("Used model:", m)
             break
-        print(m, "FAILED:", r.status_code, str(j)[:300])
+        print(m, "FAILED:", r.status_code, str(j)[:200])
     if d:
         break
-    time.sleep(20)
+    time.sleep(30)
 if d is None:
     raise SystemExit("Gemini failed, see message above")
 
