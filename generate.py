@@ -5,13 +5,19 @@ P = os.environ["PIXABAY_API_KEY"]
 used = json.load(open("used.json")) if os.path.exists("used.json") else []
 
 prompt = f"""Instagram Reel about a Telugu-audience temple mystery. Pick ONE real, well-documented fact about an Indian temple that is not in this list: {used}. Do not invent or exaggerate facts. Return only JSON with keys: topic (English), script (Telugu, 90 to 110 words, strong hook in first line), caption (Telugu, 2 lines), hashtags (one string), keywords (list of 4 English stock video search terms)."""
-
-r = requests.post(
-    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={G}",
-    json={"contents": [{"parts": [{"text": prompt}]}],
-          "generationConfig": {"responseMimeType": "application/json"}})
-d = json.loads(r.json()["candidates"][0]["content"]["parts"][0]["text"])
-
+d = None
+for m in ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.0-flash"]:
+    r = requests.post(
+        f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={G}",
+        json={"contents": [{"parts": [{"text": prompt}]}],
+              "generationConfig": {"responseMimeType": "application/json"}})
+    j = r.json()
+    if "candidates" in j:
+        d = json.loads(j["candidates"][0]["content"]["parts"][0]["text"])
+        break
+    print(m, "FAILED:", r.status_code, str(j)[:300])
+if d is None:
+    raise SystemExit("Gemini failed, see message above")
 os.makedirs("out", exist_ok=True)
 asyncio.run(edge_tts.Communicate(d["script"], "te-IN-ShrutiNeural").save("out/voice.mp3"))
 
