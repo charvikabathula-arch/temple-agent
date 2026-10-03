@@ -1,23 +1,30 @@
-import os, json, subprocess, asyncio, requests, edge_tts
+import os, json, subprocess, asyncio, requests, edge_tts, time
 
 G = os.environ["GEMINI_API_KEY"]
 P = os.environ["PIXABAY_API_KEY"]
 used = json.load(open("used.json")) if os.path.exists("used.json") else []
 
 prompt = f"""Instagram Reel about a Telugu-audience temple mystery. Pick ONE real, well-documented fact about an Indian temple that is not in this list: {used}. Do not invent or exaggerate facts. Return only JSON with keys: topic (English), script (Telugu, 90 to 110 words, strong hook in first line), caption (Telugu, 2 lines), hashtags (one string), keywords (list of 4 English stock video search terms)."""
+
 d = None
-for m in ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.0-flash"]:
-    r = requests.post(
-        f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={G}",
-        json={"contents": [{"parts": [{"text": prompt}]}],
-              "generationConfig": {"responseMimeType": "application/json"}})
-    j = r.json()
-    if "candidates" in j:
-        d = json.loads(j["candidates"][0]["content"]["parts"][0]["text"])
+for attempt in range(3):
+    for m in ["gemini-3.8-flash", "gemini-flash-latest"]:
+        r = requests.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={G}",
+            json={"contents": [{"parts": [{"text": prompt}]}],
+                  "generationConfig": {"responseMimeType": "application/json"}},
+            timeout=60)
+        j = r.json()
+        if "candidates" in j:
+            d = json.loads(j["candidates"][0]["content"]["parts"][0]["text"])
+            break
+        print(m, "FAILED:", r.status_code, str(j)[:300])
+    if d:
         break
-    print(m, "FAILED:", r.status_code, str(j)[:300])
+    time.sleep(20)
 if d is None:
     raise SystemExit("Gemini failed, see message above")
+
 os.makedirs("out", exist_ok=True)
 asyncio.run(edge_tts.Communicate(d["script"], "te-IN-ShrutiNeural").save("out/voice.mp3"))
 
@@ -29,7 +36,7 @@ seg = dur / n + 0.5
 
 def find_video(q):
     v = requests.get("https://pixabay.com/api/videos/",
-                     params={"key": P, "q": q, "per_page": 5}).json()
+                     params={"key": P, "q": q, "per_page": 5}, timeout=30).json()
     for h in v.get("hits", []):
         for size in ("medium", "small", "tiny"):
             u = h["videos"].get(size, {}).get("url")
@@ -40,7 +47,7 @@ def find_video(q):
 parts = []
 for i, k in enumerate(d["keywords"]):
     url = find_video(k) or find_video("india temple")
-    open(f"out/r{i}.mp4", "wb").write(requests.get(url).content)
+    open(f"out/r{i}.mp4", "wb").write(requests.get(url, timeout=60).content)
     subprocess.run(["ffmpeg", "-y", "-i", f"out/r{i}.mp4", "-t", str(seg), "-an",
                     "-vf", "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,fps=30",
                     "-c:v", "libx264", "-pix_fmt", "yuv420p", f"out/c{i}.mp4"], check=True)
